@@ -41,5 +41,5 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Push Docker image
-          if: github.event_name == 'push'
-          run: docker tag demo-app abourouissi/demo-app:latest && docker push abourouissi/demo-app:latest
+        if: github.event_name == 'push'
+        run: docker tag demo-app abourouissi/demo-app:latest && docker push abourouissi/demo-app:latest
