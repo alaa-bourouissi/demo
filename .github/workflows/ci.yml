@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          - fetch-depth:0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v3
@@ -27,19 +29,57 @@ jobs:
       - name: Run tests
         run: mvn test
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker image
-        run: docker build -t demo-app .
-
-      - name: Log in to Docker Hub
-        if: github.event_name == 'push'
-        uses: docker/login-action@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          role-to-assume: arn:aws:iam::545937174274:role/github-actions-eks-deploy
+          aws-region: eu-west-3
 
-      - name: Push Docker image
-        if: github.event_name == 'push'
-        run: docker tag demo-app abourouissi/demo-app:latest && docker push abourouissi/demo-app:latest
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get current version
+        id: get-version
+        run: |
+          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          
+
+      - name: Build and push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: demo-app
+          VERSION_TAG: ${{ steps.bump-version.outputs.new_version }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+
+      - name: Bump version (patch)
+        id: bump-version
+        run: |
+          CURRENT=${{ steps.get-version.outputs.current_version }}
+          # Exemple simple : bump patch (1.0.5 → 1.0.6)
+          NEW_VERSION=$(echo $CURRENT | awk -F. '{$NF+=1; print $1"."$2"."$NF}')
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update pom.xml version
+        run: |
+          mvn versions:set -DnewVersion=${{ steps.bump-version.outputs.new_version }} -DgenerateBackupPoms=false
+
+      - name: Commit version bump
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add pom.xml
+          git commit -m "Bump version to ${{ steps.bump-version.outputs.new_version }} [skip ci]"
+          git push
+
+      - name: Create Git tag for release
+        run: |
+          git tag v${{ steps.bump-version.outputs.new_version }}
+          git push origin v${{ steps.bump-version.outputs.new_version }}
+
