@@ -61,27 +61,6 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-
-      - name: Bump version (patch)
-        id: bump-version
-        run: |
-          CURRENT=${{ steps.get-version.outputs.current_version }}
-          # Exemple simple : bump patch (1.0.5 → 1.0.6)
-          NEW_VERSION=$(echo $CURRENT | awk -F. '{$NF+=1; print $1"."$2"."$NF}')
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Update pom.xml version
-        run: |
-          mvn versions:set -DnewVersion=${{ steps.bump-version.outputs.new_version }} -DgenerateBackupPoms=false
-
-      - name: Commit version bump
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add pom.xml
-          git commit -m "Bump version to ${{ steps.bump-version.outputs.new_version }} [skip ci]"
-          git push
-
       - name: Create Git tag for release
         run: |
           git tag v${{ steps.bump-version.outputs.new_version }}
